@@ -28,6 +28,9 @@ async function cached(key, ttlMs, fetchFn) {
     // 않도록 오래된 캐시라도 있으면 그걸 반환합니다.
     if (hit) return hit.value;
     console.error(`quote fetch failed for ${key}:`, err.message);
+    // 실패도 잠깐 캐싱해서, 같은 요청 제한(429) 구간에서 재시도가 몰려
+    // 제한이 더 길어지는 걸 막습니다.
+    cache.set(key, { at: now, value: null });
     return null;
   }
 }
@@ -108,20 +111,22 @@ export async function getHistory(symbol, assetType, days = 30) {
   const fx = await getUsdKrwRate();
 
   if (assetType === "crypto") {
-    return cached(`hist:crypto:${symbol}:${days}`, 120_000, async () => {
+    const points = await cached(`hist:crypto:${symbol}:${days}`, 120_000, async () => {
       const url = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(symbol)}/market_chart?vs_currency=usd&days=${days}`;
       const res = await fetch(url, { headers: BROWSER_HEADERS });
       if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
       const data = await res.json();
       return (data.prices || []).map(([tsMs, price]) => ({ t: Math.floor(tsMs / 1000), close: price * fx }));
-    }) ?? [];
+    });
+    return points ?? [];
   }
 
-  return cached(`hist:${symbol}:${days}`, 120_000, async () => {
+  const points = await cached(`hist:${symbol}:${days}`, 120_000, async () => {
     const range = days <= 5 ? "5d" : days <= 30 ? "1mo" : days <= 90 ? "3mo" : "1y";
     const raw = await fetchYahooChart(symbol, range);
     if (!raw) return [];
     const isKrw = symbol.endsWith(".KS") || symbol.endsWith(".KQ");
     return raw.points.map(p => ({ t: p.t, close: isKrw ? p.close : p.close * fx }));
-  }) ?? [];
+  });
+  return points ?? [];
 }

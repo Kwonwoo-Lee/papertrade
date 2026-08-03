@@ -110,41 +110,62 @@
     </section>
   </div>
 
-</main>
-</div>
+  <div id="detailView" style="display:none;">
+    <button class="back-link" id="detailBack">← 목록으로</button>
 
-<!-- 거래 모달 -->
-<div class="modal-backdrop" id="modalBackdrop">
-  <div class="modal">
-    <div class="modal-header">
+    <section class="detail-header">
       <div>
-        <div class="modal-symbol" id="modalName">-</div>
-        <div class="modal-price" id="modalPrice">-</div>
+        <div class="detail-name" id="detailName">-</div>
+        <div class="detail-symbol muted" id="detailSymbol">-</div>
       </div>
-      <button class="modal-close" id="modalClose">&times;</button>
-    </div>
+      <div class="detail-price-block">
+        <div class="detail-price" id="detailPrice">-</div>
+        <div class="detail-change" id="detailChange">-</div>
+      </div>
+    </section>
 
-    <div class="side-toggle">
-      <button class="side-btn buy active" data-side="buy">매수</button>
-      <button class="side-btn sell" data-side="sell">매도</button>
-    </div>
+    <div class="detail-layout">
+      <div class="detail-chart-col">
+        <div class="chart-range" id="detailChartRange">
+          <button class="range-btn" data-days="5">1주</button>
+          <button class="range-btn active" data-days="30">1개월</button>
+          <button class="range-btn" data-days="90">3개월</button>
+          <button class="range-btn" data-days="365">1년</button>
+        </div>
+        <div class="chart-wrap chart-wrap-lg">
+          <svg id="detailChartSvg" class="spark-svg" viewBox="0 0 600 220" preserveAspectRatio="none"></svg>
+          <p class="muted chart-empty" id="detailChartEmpty" style="display:none;">차트 데이터를 불러올 수 없습니다.</p>
+        </div>
+      </div>
 
-    <div class="modal-field">
-      <label for="qtyInput">수량</label>
-      <input type="number" id="qtyInput" min="0" step="any" value="1">
-    </div>
-    <div class="modal-field" id="ownedRow" style="display:none">
-      <span class="muted">보유 수량</span>
-      <span id="ownedQty">0</span>
-    </div>
-    <div class="modal-total-row">
-      <span>예상 금액</span>
-      <span id="estTotal">-</span>
-    </div>
+      <div class="detail-trade-col">
+        <div class="panel trade-panel">
+          <div class="side-toggle">
+            <button class="side-btn buy active" data-side="buy">매수</button>
+            <button class="side-btn sell" data-side="sell">매도</button>
+          </div>
 
-    <button class="btn-primary" id="submitTradeBtn">주문 실행</button>
-    <p class="modal-error" id="modalError"></p>
+          <div class="modal-field">
+            <label for="detailQtyInput">수량</label>
+            <input type="number" id="detailQtyInput" min="0" step="any" value="1">
+          </div>
+          <div class="modal-field" id="detailOwnedRow" style="display:none">
+            <span class="muted">보유 수량</span>
+            <span id="detailOwnedQty">0</span>
+          </div>
+          <div class="modal-total-row">
+            <span>예상 금액</span>
+            <span id="detailEstTotal">-</span>
+          </div>
+
+          <button class="btn-primary" id="detailSubmitBtn">주문 실행</button>
+          <p class="modal-error" id="detailError"></p>
+        </div>
+      </div>
+    </div>
   </div>
+
+</main>
 </div>
 
 <script src="/static/js/app.js"></script>
