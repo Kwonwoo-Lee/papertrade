@@ -136,7 +136,8 @@
           <button class="range-btn" data-interval="1d">일봉</button>
         </div>
         <div class="chart-wrap chart-wrap-lg">
-          <svg id="detailChartSvg" class="spark-svg" viewBox="0 0 600 220" preserveAspectRatio="none"></svg>
+          <div class="chart-ohlc" id="chartOHLC"></div>
+          <canvas id="detailChartCanvas"></canvas>
           <p class="muted chart-empty" id="detailChartEmpty" style="display:none;">차트 데이터를 불러올 수 없습니다.</p>
         </div>
       </div>
@@ -171,6 +172,7 @@
 </main>
 </div>
 
+<script src="/static/js/chart.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

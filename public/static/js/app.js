@@ -238,52 +238,48 @@ async function openDetailFor(symbol, assetType, name) {
   }
 }
 
-function buildCandles(candles) {
-  if (!candles || candles.length < 2) return null;
-  const W = 600, H = 220, PAD = 6;
-  const highs = candles.map(c => c.h), lows = candles.map(c => c.l);
-  const min = Math.min(...lows), max = Math.max(...highs);
-  const range = (max - min) || 1;
-  const n = candles.length;
-  const slotW = (W - PAD * 2) / n;
-  const bodyW = Math.max(1, slotW * 0.6);
-  const y = v => PAD + (H - PAD * 2) * (1 - (v - min) / range);
-  const items = candles.map((c, i) => {
-    const cx = PAD + slotW * i + slotW / 2;
-    const up = c.c >= c.o;
-    const yO = y(c.o), yC = y(c.c);
-    const bodyTop = Math.min(yO, yC);
-    const bodyH = Math.max(1, Math.abs(yC - yO));
-    return { cx, yH: y(c.h), yL: y(c.l), bodyTop, bodyH, bodyW, up };
-  });
-  return { items };
+let currentChartInterval = "5m";
+let detailChart = null;
+
+function ensureDetailChart() {
+  if (detailChart) return detailChart;
+  detailChart = new CandleChart($("detailChartCanvas"));
+  detailChart.onCrosshair = renderChartOHLC;
+  return detailChart;
 }
 
-let currentChartInterval = "5m";
+function renderChartOHLC(c) {
+  const box = $("chartOHLC");
+  if (!c) { box.innerHTML = ""; return; }
+  const cls = c.c >= c.o ? "good" : "bad";
+  box.innerHTML = `
+    <span>시 <b class="${cls}">${fmtKRW(c.o)}</b></span>
+    <span>고 <b class="${cls}">${fmtKRW(c.h)}</b></span>
+    <span>저 <b class="${cls}">${fmtKRW(c.l)}</b></span>
+    <span>종 <b class="${cls}">${fmtKRW(c.c)}</b></span>
+  `;
+}
 
-async function loadDetailChart(interval) {
+async function loadDetailChart(interval, { resetView = true } = {}) {
   if (!currentDetail) return;
   currentChartInterval = interval;
   document.querySelectorAll("#detailChartRange .range-btn").forEach(b => b.classList.toggle("active", b.dataset.interval === interval));
   const symbol = currentDetail.symbol, assetType = currentDetail.asset_type;
-  const svg = $("detailChartSvg");
+  const canvas = $("detailChartCanvas");
   const empty = $("detailChartEmpty");
   try {
     const d = await api(`/api/candles/${assetType}/${encodeURIComponent(symbol)}?interval=${interval}`);
     if (!currentDetail || currentDetail.symbol !== symbol || currentDetail.asset_type !== assetType) return; // 상세 화면이 바뀐 뒤 응답이 늦게 온 경우 무시
-    const built = buildCandles(d.candles);
-    if (!built) throw new Error("no data");
-    svg.innerHTML = built.items.map(it => {
-      const dir = it.up ? "up" : "down";
-      return `
-      <line class="candle-wick ${dir}" x1="${it.cx.toFixed(2)}" y1="${it.yH.toFixed(2)}" x2="${it.cx.toFixed(2)}" y2="${it.yL.toFixed(2)}"></line>
-      <rect class="candle-body ${dir}" x="${(it.cx - it.bodyW / 2).toFixed(2)}" y="${it.bodyTop.toFixed(2)}" width="${it.bodyW.toFixed(2)}" height="${it.bodyH.toFixed(2)}"></rect>
-    `;
-    }).join("");
-    svg.style.display = "block";
+    if (!d.candles || d.candles.length < 2) throw new Error("no data");
+    const chart = ensureDetailChart();
+    chart.setInterval(interval);
+    chart.resize();
+    chart.setData(d.candles, resetView);
+    canvas.style.display = "block";
     empty.style.display = "none";
   } catch {
-    svg.style.display = "none";
+    canvas.style.display = "none";
+    $("chartOHLC").innerHTML = "";
     empty.style.display = "block";
   }
 }
@@ -420,7 +416,7 @@ function init() {
     if (!me) return;
     if (currentDetail) {
       refreshDetailQuote();
-      loadDetailChart(currentChartInterval);
+      loadDetailChart(currentChartInterval, { resetView: false });
     } else if ($("rankingView").style.display !== "none") {
       loadLeaderboard();
     } else {
