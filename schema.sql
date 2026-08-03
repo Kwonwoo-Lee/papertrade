@@ -40,6 +40,22 @@ CREATE TABLE IF NOT EXISTS transactions (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  symbol TEXT NOT NULL,
+  asset_type TEXT NOT NULL,
+  side TEXT NOT NULL,
+  quantity REAL NOT NULL,
+  limit_price_krw REAL NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  filled_at TEXT,
+  filled_price_krw REAL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_holdings_user ON holdings(user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);

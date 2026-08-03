@@ -11,6 +11,8 @@ export const INITIAL_CASH_KRW = 10_000_000.0;
 export class InsufficientFundsError extends Error {}
 export class InsufficientHoldingsError extends Error {}
 export class QuoteUnavailableError extends Error {}
+export class InvalidOrderError extends Error {}
+export class OrderNotFoundError extends Error {}
 
 export async function ensureAccount(db, userId) {
   await db.prepare(
@@ -22,6 +24,7 @@ export async function reset(db, userId) {
   await db.batch([
     db.prepare("DELETE FROM holdings WHERE user_id = ?").bind(userId),
     db.prepare("DELETE FROM transactions WHERE user_id = ?").bind(userId),
+    db.prepare("DELETE FROM orders WHERE user_id = ?").bind(userId),
     db.prepare("UPDATE account SET cash_krw = ? WHERE user_id = ?").bind(INITIAL_CASH_KRW, userId),
   ]);
 }
@@ -31,13 +34,11 @@ async function getCash(db, userId) {
   return row ? row.cashKrw : INITIAL_CASH_KRW;
 }
 
-export async function buy(db, userId, symbol, assetType, quantity) {
-  if (!quantity || quantity <= 0) throw new Error("수량은 0보다 커야 합니다.");
-  const quote = await getQuote(symbol, assetType);
-  if (!quote) throw new QuoteUnavailableError(`${symbol} 시세를 가져올 수 없습니다.`);
-  const price = quote.price_krw;
+// buy()/sell()(시장가)와 지정가 체결(checkAndFillPendingOrders) 양쪽에서 공유하는
+// 실제 잔고/보유량 반영 로직. price는 호출부에서 결정(시장가는 실시간 시세,
+// 지정가는 주문에 걸어둔 가격)합니다.
+async function executeBuy(db, userId, symbol, assetType, quantity, price) {
   const total = price * quantity;
-
   const cash = await getCash(db, userId);
   if (total > cash) {
     throw new InsufficientFundsError(
@@ -70,13 +71,7 @@ export async function buy(db, userId, symbol, assetType, quantity) {
   return { symbol, asset_type: assetType, side: "buy", quantity, price_krw: price, total_krw: total };
 }
 
-export async function sell(db, userId, symbol, assetType, quantity) {
-  if (!quantity || quantity <= 0) throw new Error("수량은 0보다 커야 합니다.");
-  const quote = await getQuote(symbol, assetType);
-  if (!quote) throw new QuoteUnavailableError(`${symbol} 시세를 가져올 수 없습니다.`);
-  const price = quote.price_krw;
-  const total = price * quantity;
-
+async function executeSell(db, userId, symbol, assetType, quantity, price) {
   const existing = await db.prepare(
     "SELECT quantity FROM holdings WHERE user_id=? AND symbol=? AND asset_type=?"
   ).bind(userId, symbol, assetType).first();
@@ -85,6 +80,7 @@ export async function sell(db, userId, symbol, assetType, quantity) {
     throw new InsufficientHoldingsError(`보유 수량이 부족합니다 (매도하려는 ${quantity}, 보유 ${held})`);
   }
 
+  const total = price * quantity;
   const now = new Date().toISOString();
   const remaining = held - quantity;
   const stmts = [];
@@ -102,6 +98,111 @@ export async function sell(db, userId, symbol, assetType, quantity) {
 
   await db.batch(stmts);
   return { symbol, asset_type: assetType, side: "sell", quantity, price_krw: price, total_krw: total };
+}
+
+export async function buy(db, userId, symbol, assetType, quantity) {
+  if (!quantity || quantity <= 0) throw new Error("수량은 0보다 커야 합니다.");
+  const quote = await getQuote(symbol, assetType);
+  if (!quote) throw new QuoteUnavailableError(`${symbol} 시세를 가져올 수 없습니다.`);
+  return executeBuy(db, userId, symbol, assetType, quantity, quote.price_krw);
+}
+
+export async function sell(db, userId, symbol, assetType, quantity) {
+  if (!quantity || quantity <= 0) throw new Error("수량은 0보다 커야 합니다.");
+  const quote = await getQuote(symbol, assetType);
+  if (!quote) throw new QuoteUnavailableError(`${symbol} 시세를 가져올 수 없습니다.`);
+  return executeSell(db, userId, symbol, assetType, quantity, quote.price_krw);
+}
+
+/* ---------------- 지정가 주문 ---------------- */
+
+export async function createLimitOrder(db, userId, symbol, assetType, side, quantity, limitPriceKrw) {
+  if (!quantity || quantity <= 0) throw new InvalidOrderError("수량은 0보다 커야 합니다.");
+  if (!limitPriceKrw || limitPriceKrw <= 0) throw new InvalidOrderError("지정가는 0보다 커야 합니다.");
+  if (side !== "buy" && side !== "sell") throw new InvalidOrderError("잘못된 주문 종류입니다.");
+
+  if (side === "buy") {
+    const cash = await getCash(db, userId);
+    const total = limitPriceKrw * quantity;
+    if (total > cash) {
+      throw new InsufficientFundsError(
+        `현금이 부족합니다 (필요 ${Math.round(total).toLocaleString()}원, 보유 ${Math.round(cash).toLocaleString()}원)`);
+    }
+  } else {
+    const existing = await db.prepare(
+      "SELECT quantity FROM holdings WHERE user_id=? AND symbol=? AND asset_type=?"
+    ).bind(userId, symbol, assetType).first();
+    const held = existing ? existing.quantity : 0;
+    if (quantity > held) {
+      throw new InsufficientHoldingsError(`보유 수량이 부족합니다 (매도하려는 ${quantity}, 보유 ${held})`);
+    }
+  }
+
+  const now = new Date().toISOString();
+  const result = await db.prepare(
+    "INSERT INTO orders (user_id, symbol, asset_type, side, quantity, limit_price_krw, status, created_at) VALUES (?,?,?,?,?,?,'pending',?)"
+  ).bind(userId, symbol, assetType, side, quantity, limitPriceKrw, now).run();
+  return {
+    id: result.meta.last_row_id, symbol, asset_type: assetType, side, quantity,
+    limit_price_krw: limitPriceKrw, status: "pending", created_at: now,
+  };
+}
+
+export async function getPendingOrders(db, userId) {
+  const { results } = await db.prepare(
+    "SELECT * FROM orders WHERE user_id = ? AND status = 'pending' ORDER BY id DESC"
+  ).bind(userId).all();
+  return results;
+}
+
+export async function cancelOrder(db, userId, orderId) {
+  const order = await db.prepare("SELECT * FROM orders WHERE id = ? AND user_id = ?").bind(orderId, userId).first();
+  if (!order) throw new OrderNotFoundError("주문을 찾을 수 없습니다.");
+  if (order.status !== "pending") throw new InvalidOrderError("이미 처리된 주문입니다.");
+  await db.prepare("UPDATE orders SET status='cancelled' WHERE id=?").bind(orderId).run();
+  return { ok: true };
+}
+
+/**
+ * 크론 트리거(wrangler.toml의 scheduled)에서 호출됩니다. 대기 중인 모든 사용자의
+ * 지정가 주문을 현재가와 비교해서, 매수는 현재가<=지정가, 매도는 현재가>=지정가일
+ * 때 시장가와 동일한 체결 로직으로 처리합니다. 자금/보유량 부족 등으로 체결이
+ * 실패하면(주문 이후 다른 거래로 잔고가 바뀐 경우 등) 취소하지 않고 다음 주기에
+ * 다시 시도합니다.
+ */
+export async function checkAndFillPendingOrders(db) {
+  const { results: pending } = await db.prepare("SELECT * FROM orders WHERE status = 'pending' ORDER BY id ASC").all();
+  if (!pending.length) return { checked: 0, filled: 0 };
+
+  const distinctKeys = [...new Set(pending.map(o => `${o.symbol}::${o.asset_type}`))];
+  const quoteEntries = await Promise.all(distinctKeys.map(async key => {
+    const [symbol, assetType] = key.split("::");
+    return [key, await getQuote(symbol, assetType)];
+  }));
+  const quoteMap = new Map(quoteEntries);
+
+  let filled = 0;
+  for (const order of pending) {
+    const quote = quoteMap.get(`${order.symbol}::${order.asset_type}`);
+    if (!quote) continue;
+    const price = quote.price_krw;
+    const shouldFill = order.side === "buy" ? price <= order.limit_price_krw : price >= order.limit_price_krw;
+    if (!shouldFill) continue;
+    try {
+      if (order.side === "buy") {
+        await executeBuy(db, order.user_id, order.symbol, order.asset_type, order.quantity, price);
+      } else {
+        await executeSell(db, order.user_id, order.symbol, order.asset_type, order.quantity, price);
+      }
+      await db.prepare(
+        "UPDATE orders SET status='filled', filled_at=?, filled_price_krw=? WHERE id=?"
+      ).bind(new Date().toISOString(), price, order.id).run();
+      filled++;
+    } catch (err) {
+      console.error(`지정가 주문 #${order.id} 체결 실패 (다음 주기 재시도):`, err.message);
+    }
+  }
+  return { checked: pending.length, filled };
 }
 
 export async function getState(db, userId) {

@@ -49,9 +49,18 @@ export default {
       if (err instanceof portfolio.InsufficientFundsError) return errorJson(400, err.message);
       if (err instanceof portfolio.InsufficientHoldingsError) return errorJson(400, err.message);
       if (err instanceof portfolio.QuoteUnavailableError) return errorJson(400, err.message);
+      if (err instanceof portfolio.InvalidOrderError) return errorJson(400, err.message);
+      if (err instanceof portfolio.OrderNotFoundError) return errorJson(404, err.message);
       console.error(err.stack || err);
       return errorJson(500, "서버 오류가 발생했습니다.");
     }
+  },
+
+  // Cloudflare Cron Trigger (wrangler.toml의 [triggers] crons) - 1분마다 대기 중인
+  // 지정가 주문을 현재가와 비교해서 조건이 맞으면 체결합니다.
+  async scheduled(event, env, ctx) {
+    const result = await portfolio.checkAndFillPendingOrders(env.DB);
+    console.log(`지정가 주문 점검: 대기 ${result.checked}건 중 ${result.filled}건 체결`);
   },
 };
 
@@ -162,6 +171,22 @@ async function handleApi(request, env, url, pathname) {
     const user = await requireUser(request, env);
     await portfolio.reset(env.DB, user.id);
     return json({ ok: true });
+  }
+
+  if (pathname === "/api/orders" && method === "GET") {
+    const user = await requireUser(request, env);
+    return json({ items: await portfolio.getPendingOrders(env.DB, user.id) });
+  }
+
+  if (pathname === "/api/orders/limit" && method === "POST") {
+    const user = await requireUser(request, env);
+    const { symbol, asset_type, side, quantity, limit_price_krw } = await request.json();
+    return json(await portfolio.createLimitOrder(env.DB, user.id, symbol, asset_type, side, quantity, limit_price_krw));
+  }
+
+  if ((m = pathname.match(/^\/api\/orders\/(\d+)$/)) && method === "DELETE") {
+    const user = await requireUser(request, env);
+    return json(await portfolio.cancelOrder(env.DB, user.id, Number(m[1])));
   }
 
   return errorJson(404, "없는 경로입니다");

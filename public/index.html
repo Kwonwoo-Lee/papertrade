@@ -35,7 +35,7 @@
 
 <header class="topbar">
   <div class="wrap topbar-inner">
-    <div class="brand">📈 모의투자</div>
+    <button type="button" class="brand brand-btn" id="brandHome">📈 모의투자</button>
     <div class="topbar-right">
       <span class="muted" id="whoami"></span>
       <button class="btn-ghost" id="resetBtn">계좌 초기화</button>
@@ -93,6 +93,13 @@
       </div>
     </section>
 
+    <section class="panel" id="pendingOrdersPanel" style="display:none">
+      <h2>미체결 지정가 주문</h2>
+      <div class="scroll">
+        <table id="pendingOrdersTable"><tbody><tr><td class="muted">불러오는 중...</td></tr></tbody></table>
+      </div>
+    </section>
+
     <section class="panel">
       <h2>거래 내역</h2>
       <div class="scroll">
@@ -141,18 +148,54 @@
           <canvas id="detailChartCanvas"></canvas>
           <p class="muted chart-empty" id="detailChartEmpty" style="display:none;">차트 데이터를 불러올 수 없습니다.</p>
         </div>
+
+        <section class="panel">
+          <h2>내 보유 종목</h2>
+          <div id="detailHoldingsList" class="holdings-list">
+            <p class="muted">보유한 종목이 없습니다.</p>
+          </div>
+        </section>
       </div>
 
       <div class="detail-trade-col">
         <div class="panel trade-panel">
+          <div class="quote-stats" id="quoteStats">
+            <div class="qs-item"><span class="muted">고가</span><span id="statDayHigh">-</span></div>
+            <div class="qs-item"><span class="muted">저가</span><span id="statDayLow">-</span></div>
+            <div class="qs-item"><span class="muted">전일종가</span><span id="statPrevClose">-</span></div>
+            <div class="qs-item"><span class="muted">거래량</span><span id="statVolume">-</span></div>
+            <div class="qs-item"><span class="muted">52주최고</span><span id="statWeek52High">-</span></div>
+            <div class="qs-item"><span class="muted">52주최저</span><span id="statWeek52Low">-</span></div>
+          </div>
+
           <div class="side-toggle">
             <button class="side-btn buy active" data-side="buy">매수</button>
             <button class="side-btn sell" data-side="sell">매도</button>
           </div>
 
+          <div class="order-type-toggle" id="orderTypeToggle">
+            <button class="order-type-btn active" data-type="market">시장가</button>
+            <button class="order-type-btn" data-type="limit">지정가</button>
+          </div>
+
+          <div class="modal-field" id="limitPriceRow" style="display:none">
+            <label for="limitPriceInput">지정가</label>
+            <input type="number" id="limitPriceInput" min="0" step="any">
+          </div>
+
           <div class="modal-field">
             <label for="detailQtyInput">수량</label>
-            <input type="number" id="detailQtyInput" min="0" step="any" value="1">
+            <div class="qty-input-row">
+              <input type="number" id="detailQtyInput" min="0" step="any" value="1">
+              <button type="button" class="qty-btn" id="qtyMinBtn">최소</button>
+              <button type="button" class="qty-btn" id="qtyMaxBtn">최대</button>
+            </div>
+          </div>
+          <div class="qty-pct-row" id="qtyPctRow">
+            <button type="button" class="qty-pct-btn" data-pct="25">25%</button>
+            <button type="button" class="qty-pct-btn" data-pct="50">50%</button>
+            <button type="button" class="qty-pct-btn" data-pct="75">75%</button>
+            <button type="button" class="qty-pct-btn" data-pct="100">100%</button>
           </div>
           <div class="modal-field" id="detailOwnedRow" style="display:none">
             <span class="muted">보유 수량</span>
@@ -165,6 +208,11 @@
 
           <button class="btn-primary" id="detailSubmitBtn">주문 실행</button>
           <p class="modal-error" id="detailError"></p>
+        </div>
+
+        <div class="panel" id="detailPendingPanel" style="display:none">
+          <h2>대기 중인 지정가 주문</h2>
+          <div id="detailPendingList" class="holdings-list"></div>
         </div>
       </div>
     </div>

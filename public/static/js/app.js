@@ -4,11 +4,13 @@ const fmtPct = v => (v === null || v === undefined || isNaN(v)) ? "-" : (v >= 0 
 const clsFor = v => v > 0 ? "good" : (v < 0 ? "bad" : "");
 
 const ASSET_LABEL = { kr_stock: "국내주식", us_stock: "미국주식", crypto: "코인" };
+const MIN_QTY = { kr_stock: 1, us_stock: 1, crypto: 0.0001 };
 
 let currentTab = "kr_stock";
 let currentDetail = null;
 let detailReturnView = "account";
 let currentSide = "buy";
+let orderType = "market";
 let authMode = "login";
 let me = null; // {id, username}
 
@@ -25,6 +27,12 @@ function esc(s) {
 }
 function escAttr(s) { return esc(s).replace(/'/g, "&#39;"); }
 function fmtQty(q) { return Number(q).toLocaleString(undefined, { maximumFractionDigits: 6 }); }
+function fmtVolume(v, assetType) {
+  if (v === null || v === undefined || isNaN(v)) return "-";
+  return assetType === "crypto"
+    ? Number(v).toLocaleString(undefined, { maximumFractionDigits: 4 })
+    : Math.round(v).toLocaleString() + "주";
+}
 
 /* ---------------- 인증 ---------------- */
 
@@ -93,6 +101,22 @@ async function logout() {
 
 /* ---------------- 포트폴리오 ---------------- */
 
+function renderHoldingsRows(holdings) {
+  if (!holdings.length) return "";
+  return holdings.map(h => `
+    <div class="holding-row" onclick="openDetailFor('${h.symbol}','${h.asset_type}','${escAttr(h.name)}')">
+      <div class="holding-main">
+        <div class="holding-name">${esc(h.name)}</div>
+        <div class="holding-sub">${esc(h.symbol)} · ${fmtQty(h.quantity)}주 · 평단 ${fmtKRW(h.avg_cost_krw)}</div>
+      </div>
+      <div class="holding-right">
+        <div class="holding-value">${fmtKRW(h.market_value_krw)}</div>
+        <div class="holding-pl ${clsFor(h.unrealized_pl_krw)}">${h.unrealized_pl_krw >= 0 ? "+" : ""}${fmtKRW(h.unrealized_pl_krw)} (${fmtPct(h.unrealized_pl_pct)})</div>
+      </div>
+    </div>
+  `).join("");
+}
+
 async function loadPortfolio() {
   const p = await api("/api/portfolio");
   $("totalValue").textContent = fmtKRW(p.total_value_krw);
@@ -102,23 +126,9 @@ async function loadPortfolio() {
   $("cashValue").textContent = fmtKRW(p.cash_krw);
   $("initialValue").textContent = fmtKRW(p.initial_cash_krw);
 
-  const list = $("holdingsList");
-  if (!p.holdings.length) {
-    list.innerHTML = '<p class="muted">아직 보유한 종목이 없습니다. 아래 "둘러보기"에서 종목을 선택해 매수해보세요.</p>';
-  } else {
-    list.innerHTML = p.holdings.map(h => `
-      <div class="holding-row" onclick="openDetailFor('${h.symbol}','${h.asset_type}','${escAttr(h.name)}')">
-        <div class="holding-main">
-          <div class="holding-name">${esc(h.name)}</div>
-          <div class="holding-sub">${esc(h.symbol)} · ${fmtQty(h.quantity)}주 · 평단 ${fmtKRW(h.avg_cost_krw)}</div>
-        </div>
-        <div class="holding-right">
-          <div class="holding-value">${fmtKRW(h.market_value_krw)}</div>
-          <div class="holding-pl ${clsFor(h.unrealized_pl_krw)}">${h.unrealized_pl_krw >= 0 ? "+" : ""}${fmtKRW(h.unrealized_pl_krw)} (${fmtPct(h.unrealized_pl_pct)})</div>
-        </div>
-      </div>
-    `).join("");
-  }
+  $("holdingsList").innerHTML = p.holdings.length
+    ? renderHoldingsRows(p.holdings)
+    : '<p class="muted">아직 보유한 종목이 없습니다. 아래 "둘러보기"에서 종목을 선택해 매수해보세요.</p>';
   return p;
 }
 
@@ -220,7 +230,10 @@ async function openDetailFor(symbol, assetType, name) {
       api("/api/portfolio"),
     ]);
     const held = portfolioState.holdings.find(h => h.symbol === symbol && h.asset_type === assetType);
-    currentDetail = { symbol, asset_type: assetType, name, price: quote.price_krw, changePct: quote.change_pct, ownedQty: held ? held.quantity : 0 };
+    currentDetail = {
+      symbol, asset_type: assetType, name, price: quote.price_krw, changePct: quote.change_pct,
+      ownedQty: held ? held.quantity : 0, cash: portfolioState.cash_krw,
+    };
     currentSide = "buy";
     $("detailName").textContent = name;
     $("detailSymbol").textContent = `${symbol} · ${ASSET_LABEL[assetType] || ""}`;
@@ -230,12 +243,31 @@ async function openDetailFor(symbol, assetType, name) {
     changeEl.className = "detail-change " + clsFor(quote.change_pct);
     $("detailQtyInput").value = 1;
     $("detailError").textContent = "";
+    renderQuoteStats(quote);
+    setOrderType("market");
     setDetailSide("buy");
+    renderDetailHoldings(portfolioState.holdings);
     showDetailView();
     loadDetailChart("5m");
+    loadDetailPendingOrders();
   } catch (e) {
     alert("시세를 불러오지 못했습니다: " + e.message);
   }
+}
+
+function renderQuoteStats(q) {
+  $("statDayHigh").textContent = fmtKRW(q.day_high_krw);
+  $("statDayLow").textContent = fmtKRW(q.day_low_krw);
+  $("statPrevClose").textContent = fmtKRW(q.prev_close_krw);
+  $("statVolume").textContent = fmtVolume(q.volume, q.asset_type);
+  $("statWeek52High").textContent = fmtKRW(q.week52_high_krw);
+  $("statWeek52Low").textContent = fmtKRW(q.week52_low_krw);
+}
+
+function renderDetailHoldings(holdings) {
+  $("detailHoldingsList").innerHTML = holdings.length
+    ? renderHoldingsRows(holdings)
+    : '<p class="muted">보유한 종목이 없습니다.</p>';
 }
 
 let currentChartInterval = "5m";
@@ -257,6 +289,7 @@ function renderChartOHLC(c) {
     <span>고 <b class="${cls}">${fmtKRW(c.h)}</b></span>
     <span>저 <b class="${cls}">${fmtKRW(c.l)}</b></span>
     <span>종 <b class="${cls}">${fmtKRW(c.c)}</b></span>
+    <span>거래량 <b>${fmtVolume(c.v, currentDetail ? currentDetail.asset_type : "kr_stock")}</b></span>
   `;
 }
 
@@ -297,35 +330,172 @@ function setDetailSide(side) {
   updateDetailEstTotal();
 }
 
+function refPrice() {
+  if (!currentDetail) return 0;
+  if (orderType === "limit") {
+    const lp = parseFloat($("limitPriceInput").value);
+    if (lp > 0) return lp;
+  }
+  return currentDetail.price;
+}
+
 function updateDetailEstTotal() {
   const qty = parseFloat($("detailQtyInput").value) || 0;
-  $("detailEstTotal").textContent = currentDetail ? fmtKRW(currentDetail.price * qty) : "-";
+  $("detailEstTotal").textContent = currentDetail ? fmtKRW(refPrice() * qty) : "-";
+}
+
+function roundQty(qty, assetType) {
+  if (qty <= 0) return 0;
+  return assetType === "crypto" ? Math.floor(qty * 1e6) / 1e6 : Math.floor(qty);
+}
+
+function setQtyMin() {
+  if (!currentDetail) return;
+  $("detailQtyInput").value = MIN_QTY[currentDetail.asset_type] ?? 1;
+  updateDetailEstTotal();
+}
+
+function setQtyMax() {
+  if (!currentDetail) return;
+  let qty;
+  if (currentSide === "sell") {
+    qty = currentDetail.ownedQty;
+  } else {
+    const price = refPrice();
+    qty = price > 0 ? roundQty(currentDetail.cash / price, currentDetail.asset_type) : 0;
+  }
+  $("detailQtyInput").value = qty > 0 ? qty : 0;
+  updateDetailEstTotal();
+}
+
+function setQtyPct(pct) {
+  if (!currentDetail) return;
+  let qty;
+  if (currentSide === "sell") {
+    qty = roundQty(currentDetail.ownedQty * (pct / 100), currentDetail.asset_type);
+  } else {
+    const price = refPrice();
+    qty = price > 0 ? roundQty((currentDetail.cash * (pct / 100)) / price, currentDetail.asset_type) : 0;
+  }
+  $("detailQtyInput").value = qty > 0 ? qty : 0;
+  updateDetailEstTotal();
+}
+
+function setOrderType(type) {
+  orderType = type;
+  document.querySelectorAll("#orderTypeToggle .order-type-btn").forEach(b => b.classList.toggle("active", b.dataset.type === type));
+  $("limitPriceRow").style.display = type === "limit" ? "flex" : "none";
+  if (type === "limit" && currentDetail && !$("limitPriceInput").value) {
+    $("limitPriceInput").value = currentDetail.price;
+  }
+  $("detailSubmitBtn").textContent = type === "limit" ? "지정가 주문 등록" : "주문 실행";
+  setDetailError("");
+  updateDetailEstTotal();
+}
+
+function setDetailError(msg, isSuccess) {
+  const errEl = $("detailError");
+  errEl.textContent = msg;
+  errEl.classList.toggle("good", !!isSuccess);
 }
 
 async function submitDetailTrade() {
   if (!currentDetail) return;
   const qty = parseFloat($("detailQtyInput").value);
-  const errEl = $("detailError");
-  errEl.textContent = "";
-  if (!qty || qty <= 0) { errEl.textContent = "올바른 수량을 입력해주세요."; return; }
+  setDetailError("");
+  if (!qty || qty <= 0) { setDetailError("올바른 수량을 입력해주세요."); return; }
 
   const btn = $("detailSubmitBtn");
   btn.disabled = true;
   try {
-    await api(`/api/trade/${currentSide}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol: currentDetail.symbol, asset_type: currentDetail.asset_type, quantity: qty }),
-    });
-    const portfolioState = await loadPortfolio();
-    await loadTransactions();
-    const held = portfolioState.holdings.find(h => h.symbol === currentDetail.symbol && h.asset_type === currentDetail.asset_type);
-    currentDetail.ownedQty = held ? held.quantity : 0;
-    setDetailSide(currentSide);
+    if (orderType === "limit") {
+      const limitPrice = parseFloat($("limitPriceInput").value);
+      if (!limitPrice || limitPrice <= 0) { setDetailError("올바른 지정가를 입력해주세요."); return; }
+      await api("/api/orders/limit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: currentDetail.symbol, asset_type: currentDetail.asset_type,
+          side: currentSide, quantity: qty, limit_price_krw: limitPrice,
+        }),
+      });
+      setDetailError(`${currentSide === "buy" ? "매수" : "매도"} 지정가 주문이 등록되었습니다.`, true);
+      await Promise.all([loadDetailPendingOrders(), loadPendingOrdersPanel()]);
+    } else {
+      await api(`/api/trade/${currentSide}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: currentDetail.symbol, asset_type: currentDetail.asset_type, quantity: qty }),
+      });
+      const portfolioState = await loadPortfolio();
+      await loadTransactions();
+      const held = portfolioState.holdings.find(h => h.symbol === currentDetail.symbol && h.asset_type === currentDetail.asset_type);
+      currentDetail.ownedQty = held ? held.quantity : 0;
+      currentDetail.cash = portfolioState.cash_krw;
+      renderDetailHoldings(portfolioState.holdings);
+      setDetailSide(currentSide);
+    }
   } catch (e) {
-    errEl.textContent = e.message;
+    setDetailError(e.message);
   } finally {
     btn.disabled = false;
+  }
+}
+
+/* ---------------- 지정가 대기 주문 ---------------- */
+
+function renderOrderRow(o) {
+  return `
+    <div class="holding-row">
+      <div class="holding-main">
+        <div class="holding-name">${o.side === "buy" ? "매수" : "매도"} 대기</div>
+        <div class="holding-sub">${fmtQty(o.quantity)} · 지정가 ${fmtKRW(o.limit_price_krw)}</div>
+      </div>
+      <button type="button" class="btn-ghost" onclick="cancelPendingOrder(${o.id})">취소</button>
+    </div>
+  `;
+}
+
+async function loadDetailPendingOrders() {
+  if (!currentDetail) return;
+  try {
+    const d = await api("/api/orders");
+    const mine = d.items.filter(o => o.symbol === currentDetail.symbol && o.asset_type === currentDetail.asset_type);
+    const panel = $("detailPendingPanel");
+    if (!mine.length) { panel.style.display = "none"; return; }
+    panel.style.display = "block";
+    $("detailPendingList").innerHTML = mine.map(o => renderOrderRow(o)).join("");
+  } catch {}
+}
+
+async function loadPendingOrdersPanel() {
+  try {
+    const d = await api("/api/orders");
+    const panel = $("pendingOrdersPanel");
+    if (!d.items.length) { panel.style.display = "none"; return; }
+    panel.style.display = "block";
+    $("pendingOrdersTable").innerHTML =
+      "<thead><tr><th>시각</th><th>종목</th><th>구분</th><th>수량</th><th>지정가</th><th></th></tr></thead><tbody>" +
+      d.items.map(o => `
+        <tr>
+          <td class="muted">${esc((o.created_at || "").slice(0, 19).replace("T", " "))}</td>
+          <td>${esc(o.symbol)}</td>
+          <td><span class="badge ${o.side}">${o.side === "buy" ? "매수" : "매도"}</span></td>
+          <td>${fmtQty(o.quantity)}</td>
+          <td>${fmtKRW(o.limit_price_krw)}</td>
+          <td><button type="button" class="btn-ghost" onclick="cancelPendingOrder(${o.id})">취소</button></td>
+        </tr>
+      `).join("") + "</tbody>";
+  } catch {}
+}
+
+async function cancelPendingOrder(orderId) {
+  if (!confirm("이 지정가 주문을 취소할까요?")) return;
+  try {
+    await api(`/api/orders/${orderId}`, { method: "DELETE" });
+    await Promise.all([loadPendingOrdersPanel(), loadDetailPendingOrders(), loadPortfolio()]);
+  } catch (e) {
+    alert("주문 취소 실패: " + e.message);
   }
 }
 
@@ -339,6 +509,7 @@ async function refreshDetailQuote() {
     const changeEl = $("detailChange");
     changeEl.textContent = fmtPct(quote.change_pct);
     changeEl.className = "detail-change " + clsFor(quote.change_pct);
+    renderQuoteStats(quote);
     updateDetailEstTotal();
   } catch {}
 }
@@ -360,6 +531,7 @@ function loadAllAccountData() {
   loadPortfolio();
   loadDiscover(currentTab);
   loadTransactions();
+  loadPendingOrdersPanel();
 }
 
 function switchMainView(view) {
@@ -400,9 +572,15 @@ function init() {
 
   document.querySelectorAll("#detailChartRange .range-btn").forEach(b => b.addEventListener("click", () => loadDetailChart(b.dataset.interval)));
   document.querySelectorAll(".side-btn").forEach(b => b.addEventListener("click", () => setDetailSide(b.dataset.side)));
+  document.querySelectorAll("#orderTypeToggle .order-type-btn").forEach(b => b.addEventListener("click", () => setOrderType(b.dataset.type)));
+  document.querySelectorAll("#qtyPctRow .qty-pct-btn").forEach(b => b.addEventListener("click", () => setQtyPct(Number(b.dataset.pct))));
   $("detailQtyInput").addEventListener("input", updateDetailEstTotal);
+  $("limitPriceInput").addEventListener("input", updateDetailEstTotal);
+  $("qtyMinBtn").addEventListener("click", setQtyMin);
+  $("qtyMaxBtn").addEventListener("click", setQtyMax);
   $("detailSubmitBtn").addEventListener("click", submitDetailTrade);
   $("detailBack").addEventListener("click", closeDetail);
+  $("brandHome").addEventListener("click", () => switchMainView("account"));
 
   $("resetBtn").addEventListener("click", async () => {
     if (!confirm("계좌를 초기 상태로 리셋할까요? 모든 보유 종목과 거래 내역이 사라집니다.")) return;
@@ -417,10 +595,13 @@ function init() {
     if (currentDetail) {
       refreshDetailQuote();
       loadDetailChart(currentChartInterval, { resetView: false });
+      api("/api/portfolio").then(p => renderDetailHoldings(p.holdings)).catch(() => {});
+      loadDetailPendingOrders();
     } else if ($("rankingView").style.display !== "none") {
       loadLeaderboard();
     } else {
       loadPortfolio();
+      loadPendingOrdersPanel();
       if (!$("searchInput").value.trim()) loadDiscover(currentTab);
     }
   }, 20000);

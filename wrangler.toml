@@ -10,3 +10,7 @@ binding = "ASSETS"
 binding = "DB"
 database_name = "papertrade-db"
 database_id = "ec653b18-39c7-4a87-abf4-94a3d68711ac"
+
+# 대기 중인 지정가 주문을 1분마다 점검해서 조건이 맞으면 체결합니다.
+[triggers]
+crons = ["* * * * *"]

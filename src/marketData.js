@@ -78,6 +78,12 @@ async function fetchYahooChart(symbol, range = "5d") {
     price,
     currency: result.meta.currency,
     changePct: Math.round(changePct * 100) / 100,
+    dayHigh: result.meta.regularMarketDayHigh ?? null,
+    dayLow: result.meta.regularMarketDayLow ?? null,
+    volume: result.meta.regularMarketVolume ?? null,
+    prevClose: result.meta.chartPreviousClose ?? prevClose ?? null,
+    week52High: result.meta.fiftyTwoWeekHigh ?? null,
+    week52Low: result.meta.fiftyTwoWeekLow ?? null,
     points: timestamps.map((t, i) => ({ t, close: result.indicators.quote[0].close[i] }))
       .filter(p => p.close !== null && p.close !== undefined),
   };
@@ -87,7 +93,24 @@ async function stockQuote(ticker) {
   return cached(`quote:${ticker}`, CACHE_TTL_MS, async () => {
     const raw = await fetchYahooChart(ticker, "5d");
     if (!raw) return null;
-    return { priceNative: raw.price, currency: raw.currency, changePct: raw.changePct };
+    return {
+      priceNative: raw.price, currency: raw.currency, changePct: raw.changePct,
+      dayHigh: raw.dayHigh, dayLow: raw.dayLow, volume: raw.volume,
+      prevClose: raw.prevClose, week52High: raw.week52High, week52Low: raw.week52Low,
+    };
+  });
+}
+
+// CoinGecko 무료 API는 당일 고가/저가/거래량/52주 범위를 안정적으로 안 줘서,
+// 코인도 야후의 -USD 티커에서 이 통계만 보조로 가져옵니다 (실시간가/등락률은 계속 CoinGecko 사용).
+async function cryptoDayStats(coinId) {
+  return cached(`daystats:crypto:${coinId}`, CACHE_TTL_MS, async () => {
+    const raw = await fetchYahooChart(yahooTickerFor(coinId, "crypto"), "5d");
+    if (!raw) return null;
+    return {
+      dayHigh: raw.dayHigh, dayLow: raw.dayLow, volume: raw.volume,
+      prevClose: raw.prevClose, week52High: raw.week52High, week52Low: raw.week52Low,
+    };
   });
 }
 
@@ -107,12 +130,18 @@ async function cryptoQuote(coinId) {
   });
 }
 
+function toKrw(nativeValue, scale) {
+  return nativeValue == null ? null : Math.round(nativeValue * scale * 100) / 100;
+}
+
 /** assetType: 'kr_stock' | 'us_stock' | 'crypto'. 반환 price는 항상 KRW로 환산됩니다. */
 export async function getQuote(symbol, assetType) {
   const raw = assetType === "crypto" ? await cryptoQuote(symbol) : await stockQuote(symbol);
   if (!raw) return null;
   const fx = await getUsdKrwRate();
-  const priceKrw = raw.currency === "USD" ? raw.priceNative * fx : raw.priceNative;
+  const scale = raw.currency === "USD" ? fx : 1;
+  const priceKrw = raw.priceNative * scale;
+  const stats = assetType === "crypto" ? await cryptoDayStats(symbol) : raw;
   // 기존 파이썬 API와 동일한 snake_case 키로 반환 - 프론트엔드(app.js)를 그대로 재사용하기 위함
   return {
     symbol,
@@ -121,6 +150,12 @@ export async function getQuote(symbol, assetType) {
     price_native: raw.priceNative,
     currency: raw.currency,
     change_pct: raw.changePct,
+    day_high_krw: toKrw(stats?.dayHigh, scale),
+    day_low_krw: toKrw(stats?.dayLow, scale),
+    prev_close_krw: toKrw(stats?.prevClose, scale),
+    volume: stats?.volume ?? null,
+    week52_high_krw: toKrw(stats?.week52High, scale),
+    week52_low_krw: toKrw(stats?.week52Low, scale),
   };
 }
 
@@ -138,7 +173,7 @@ async function fetchYahooCandlesRaw(symbol, interval, range) {
   for (let i = 0; i < ts.length; i++) {
     const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i];
     if (o == null || h == null || l == null || c == null) continue;
-    out.push({ t: ts[i], o, h, l, c });
+    out.push({ t: ts[i], o, h, l, c, v: q.volume?.[i] ?? 0 });
   }
   return out;
 }
@@ -153,6 +188,7 @@ function aggregateCandles(candles, n) {
       h: Math.max(...chunk.map(c => c.h)),
       l: Math.min(...chunk.map(c => c.l)),
       c: chunk[chunk.length - 1].c,
+      v: chunk.reduce((sum, c) => sum + (c.v || 0), 0),
     });
   }
   return out;
@@ -169,7 +205,7 @@ export async function getCandles(symbol, assetType, interval = "5m") {
     if (!raw.length) return [];
     const isKrw = assetType === "kr_stock";
     const scale = isKrw ? 1 : fx;
-    const converted = raw.map(c => ({ t: c.t, o: c.o * scale, h: c.h * scale, l: c.l * scale, c: c.c * scale }));
+    const converted = raw.map(c => ({ t: c.t, o: c.o * scale, h: c.h * scale, l: c.l * scale, c: c.c * scale, v: c.v }));
     return cfg.aggregate > 1 ? aggregateCandles(converted, cfg.aggregate) : converted;
   });
   return candles ?? [];
