@@ -35,15 +35,16 @@ export const US_STOCKS = [
   { symbol: "SPY", name: "SPDR S&P 500 ETF" },
 ];
 
+// yahoo: 분봉 캔들차트 조회용 야후 파이낸스 티커 (CoinGecko는 분 단위 캔들을 제공하지 않음)
 export const CRYPTO = [
-  { symbol: "bitcoin", name: "Bitcoin (BTC)" },
-  { symbol: "ethereum", name: "Ethereum (ETH)" },
-  { symbol: "solana", name: "Solana (SOL)" },
-  { symbol: "ripple", name: "XRP" },
-  { symbol: "dogecoin", name: "Dogecoin (DOGE)" },
-  { symbol: "cardano", name: "Cardano (ADA)" },
-  { symbol: "avalanche-2", name: "Avalanche (AVAX)" },
-  { symbol: "chainlink", name: "Chainlink (LINK)" },
+  { symbol: "bitcoin", name: "Bitcoin (BTC)", yahoo: "BTC-USD" },
+  { symbol: "ethereum", name: "Ethereum (ETH)", yahoo: "ETH-USD" },
+  { symbol: "solana", name: "Solana (SOL)", yahoo: "SOL-USD" },
+  { symbol: "ripple", name: "XRP", yahoo: "XRP-USD" },
+  { symbol: "dogecoin", name: "Dogecoin (DOGE)", yahoo: "DOGE-USD" },
+  { symbol: "cardano", name: "Cardano (ADA)", yahoo: "ADA-USD" },
+  { symbol: "avalanche-2", name: "Avalanche (AVAX)", yahoo: "AVAX-USD" },
+  { symbol: "chainlink", name: "Chainlink (LINK)", yahoo: "LINK-USD" },
 ];
 
 export const CATALOG = [
@@ -67,4 +68,10 @@ export function lookupName(symbol, assetType) {
 
 export function catalogFor(assetType) {
   return { kr_stock: KR_STOCKS, us_stock: US_STOCKS, crypto: CRYPTO }[assetType] || [];
+}
+
+export function yahooTickerFor(symbol, assetType) {
+  if (assetType !== "crypto") return symbol;
+  const item = CRYPTO.find(c => c.symbol === symbol);
+  return item ? item.yahoo : symbol;
 }

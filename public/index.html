@@ -127,10 +127,13 @@
     <div class="detail-layout">
       <div class="detail-chart-col">
         <div class="chart-range" id="detailChartRange">
-          <button class="range-btn" data-days="5">1주</button>
-          <button class="range-btn active" data-days="30">1개월</button>
-          <button class="range-btn" data-days="90">3개월</button>
-          <button class="range-btn" data-days="365">1년</button>
+          <button class="range-btn" data-interval="1m">1분</button>
+          <button class="range-btn" data-interval="3m">3분</button>
+          <button class="range-btn active" data-interval="5m">5분</button>
+          <button class="range-btn" data-interval="15m">15분</button>
+          <button class="range-btn" data-interval="30m">30분</button>
+          <button class="range-btn" data-interval="60m">1시간</button>
+          <button class="range-btn" data-interval="1d">일봉</button>
         </div>
         <div class="chart-wrap chart-wrap-lg">
           <svg id="detailChartSvg" class="spark-svg" viewBox="0 0 600 220" preserveAspectRatio="none"></svg>

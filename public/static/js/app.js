@@ -232,43 +232,54 @@ async function openDetailFor(symbol, assetType, name) {
     $("detailError").textContent = "";
     setDetailSide("buy");
     showDetailView();
-    loadDetailChart(30);
+    loadDetailChart("5m");
   } catch (e) {
     alert("시세를 불러오지 못했습니다: " + e.message);
   }
 }
 
-function buildSparkline(points) {
-  if (!points || points.length < 2) return null;
+function buildCandles(candles) {
+  if (!candles || candles.length < 2) return null;
   const W = 600, H = 220, PAD = 6;
-  const closes = points.map(p => p.close);
-  const min = Math.min(...closes), max = Math.max(...closes);
+  const highs = candles.map(c => c.h), lows = candles.map(c => c.l);
+  const min = Math.min(...lows), max = Math.max(...highs);
   const range = (max - min) || 1;
-  const stepX = (W - PAD * 2) / (points.length - 1);
-  const coords = points.map((p, i) => [
-    PAD + i * stepX,
-    PAD + (H - PAD * 2) * (1 - (p.close - min) / range),
-  ]);
-  const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
-  const areaPath = `${linePath} L${coords[coords.length - 1][0].toFixed(2)},${H - PAD} L${coords[0][0].toFixed(2)},${H - PAD} Z`;
-  return { linePath, areaPath, trendUp: closes[closes.length - 1] >= closes[0] };
+  const n = candles.length;
+  const slotW = (W - PAD * 2) / n;
+  const bodyW = Math.max(1, slotW * 0.6);
+  const y = v => PAD + (H - PAD * 2) * (1 - (v - min) / range);
+  const items = candles.map((c, i) => {
+    const cx = PAD + slotW * i + slotW / 2;
+    const up = c.c >= c.o;
+    const yO = y(c.o), yC = y(c.c);
+    const bodyTop = Math.min(yO, yC);
+    const bodyH = Math.max(1, Math.abs(yC - yO));
+    return { cx, yH: y(c.h), yL: y(c.l), bodyTop, bodyH, bodyW, up };
+  });
+  return { items };
 }
 
-async function loadDetailChart(days) {
+let currentChartInterval = "5m";
+
+async function loadDetailChart(interval) {
   if (!currentDetail) return;
-  document.querySelectorAll("#detailChartRange .range-btn").forEach(b => b.classList.toggle("active", Number(b.dataset.days) === days));
+  currentChartInterval = interval;
+  document.querySelectorAll("#detailChartRange .range-btn").forEach(b => b.classList.toggle("active", b.dataset.interval === interval));
   const symbol = currentDetail.symbol, assetType = currentDetail.asset_type;
   const svg = $("detailChartSvg");
   const empty = $("detailChartEmpty");
   try {
-    const d = await api(`/api/history/${assetType}/${encodeURIComponent(symbol)}?days=${days}`);
+    const d = await api(`/api/candles/${assetType}/${encodeURIComponent(symbol)}?interval=${interval}`);
     if (!currentDetail || currentDetail.symbol !== symbol || currentDetail.asset_type !== assetType) return; // 상세 화면이 바뀐 뒤 응답이 늦게 온 경우 무시
-    const spark = buildSparkline(d.points);
-    if (!spark) throw new Error("no data");
-    const cls = spark.trendUp ? "good" : "bad";
-    svg.innerHTML =
-      `<path class="spark-area ${cls}" d="${spark.areaPath}" opacity="0.12" stroke="none"></path>` +
-      `<path class="spark-line ${cls}" d="${spark.linePath}" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>`;
+    const built = buildCandles(d.candles);
+    if (!built) throw new Error("no data");
+    svg.innerHTML = built.items.map(it => {
+      const dir = it.up ? "up" : "down";
+      return `
+      <line class="candle-wick ${dir}" x1="${it.cx.toFixed(2)}" y1="${it.yH.toFixed(2)}" x2="${it.cx.toFixed(2)}" y2="${it.yL.toFixed(2)}"></line>
+      <rect class="candle-body ${dir}" x="${(it.cx - it.bodyW / 2).toFixed(2)}" y="${it.bodyTop.toFixed(2)}" width="${it.bodyW.toFixed(2)}" height="${it.bodyH.toFixed(2)}"></rect>
+    `;
+    }).join("");
     svg.style.display = "block";
     empty.style.display = "none";
   } catch {
@@ -391,7 +402,7 @@ function init() {
     searchTimer = setTimeout(() => runSearch(e.target.value), 300);
   });
 
-  document.querySelectorAll("#detailChartRange .range-btn").forEach(b => b.addEventListener("click", () => loadDetailChart(Number(b.dataset.days))));
+  document.querySelectorAll("#detailChartRange .range-btn").forEach(b => b.addEventListener("click", () => loadDetailChart(b.dataset.interval)));
   document.querySelectorAll(".side-btn").forEach(b => b.addEventListener("click", () => setDetailSide(b.dataset.side)));
   $("detailQtyInput").addEventListener("input", updateDetailEstTotal);
   $("detailSubmitBtn").addEventListener("click", submitDetailTrade);
@@ -409,6 +420,7 @@ function init() {
     if (!me) return;
     if (currentDetail) {
       refreshDetailQuote();
+      loadDetailChart(currentChartInterval);
     } else if ($("rankingView").style.display !== "none") {
       loadLeaderboard();
     } else {

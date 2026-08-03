@@ -3,17 +3,34 @@
  * ====================================================================
  * Cloudflare Workers는 Python(yfinance)을 못 돌리므로, yfinance가 내부적으로
  * 호출하는 것과 같은 Yahoo Finance 원시 차트 API를 fetch로 직접 호출합니다.
- * 코인은 Python 버전과 동일하게 CoinGecko 공개 API를 씁니다.
+ * 실시간 현재가는 Python 버전과 동일하게 CoinGecko 공개 API를 씁니다.
+ * 분봉 캔들차트는 CoinGecko 무료 API가 분 단위 캔들을 제공하지 않아서,
+ * 코인도 Yahoo Finance의 -USD 티커(예: BTC-USD)를 통해 조회합니다.
  * 전부 KRW로 환산해서 반환합니다. 모듈 스코프의 간단한 TTL 캐시로
  * 같은 워커 인스턴스 안에서 반복 조회를 줄입니다(정확한 분산 캐시는
  * 아니지만, Python 버전의 in-memory 캐시와 동일한 수준의 최적화입니다).
  */
+import { yahooTickerFor } from "./symbols.js";
 
 const CACHE_TTL_MS = 15_000;
 const CRYPTO_CACHE_TTL_MS = 30_000; // CoinGecko 무료 API는 요청 제한이 더 엄격함
+const CANDLE_CACHE_TTL_MS = 20_000;
 const cache = new Map(); // key -> { at, value }
 
 const BROWSER_HEADERS = { "User-Agent": "Mozilla/5.0 (compatible; papertrade/1.0)" };
+
+// 화면에 노출하는 봉 종류 -> 야후 파이낸스 interval/range.
+// 야후는 1m은 최근 7일, 그 외 분봉은 최근 60일까지만 지원해서 range를 짧게 잡습니다.
+// 3분봉은 야후가 직접 지원하지 않아 1분봉을 3개씩 묶어서(aggregate) 만듭니다.
+const CANDLE_INTERVALS = {
+  "1m": { yahooInterval: "1m", range: "1d", aggregate: 1 },
+  "3m": { yahooInterval: "1m", range: "1d", aggregate: 3 },
+  "5m": { yahooInterval: "5m", range: "5d", aggregate: 1 },
+  "15m": { yahooInterval: "15m", range: "5d", aggregate: 1 },
+  "30m": { yahooInterval: "30m", range: "1mo", aggregate: 1 },
+  "60m": { yahooInterval: "60m", range: "3mo", aggregate: 1 },
+  "1d": { yahooInterval: "1d", range: "1y", aggregate: 1 },
+};
 
 async function cached(key, ttlMs, fetchFn) {
   const hit = cache.get(key);
@@ -107,26 +124,53 @@ export async function getQuote(symbol, assetType) {
   };
 }
 
-export async function getHistory(symbol, assetType, days = 30) {
+async function fetchYahooCandlesRaw(symbol, interval, range) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}`;
+  const res = await fetch(url, { headers: BROWSER_HEADERS });
+  if (!res.ok) throw new Error(`Yahoo Finance ${res.status} for ${symbol}`);
+  const data = await res.json();
+  const result = data?.chart?.result?.[0];
+  if (!result) throw new Error(`Yahoo Finance: no data for ${symbol}`);
+
+  const ts = result.timestamp || [];
+  const q = result.indicators?.quote?.[0] || {};
+  const out = [];
+  for (let i = 0; i < ts.length; i++) {
+    const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i];
+    if (o == null || h == null || l == null || c == null) continue;
+    out.push({ t: ts[i], o, h, l, c });
+  }
+  return out;
+}
+
+function aggregateCandles(candles, n) {
+  const out = [];
+  for (let i = 0; i < candles.length; i += n) {
+    const chunk = candles.slice(i, i + n);
+    out.push({
+      t: chunk[0].t,
+      o: chunk[0].o,
+      h: Math.max(...chunk.map(c => c.h)),
+      l: Math.min(...chunk.map(c => c.l)),
+      c: chunk[chunk.length - 1].c,
+    });
+  }
+  return out;
+}
+
+/** interval: '1m'|'3m'|'5m'|'15m'|'30m'|'60m'|'1d'. OHLC는 전부 KRW로 환산됩니다. */
+export async function getCandles(symbol, assetType, interval = "5m") {
+  const cfg = CANDLE_INTERVALS[interval] || CANDLE_INTERVALS["5m"];
+  const yahooSymbol = yahooTickerFor(symbol, assetType);
   const fx = await getUsdKrwRate();
 
-  if (assetType === "crypto") {
-    const points = await cached(`hist:crypto:${symbol}:${days}`, 120_000, async () => {
-      const url = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(symbol)}/market_chart?vs_currency=usd&days=${days}`;
-      const res = await fetch(url, { headers: BROWSER_HEADERS });
-      if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
-      const data = await res.json();
-      return (data.prices || []).map(([tsMs, price]) => ({ t: Math.floor(tsMs / 1000), close: price * fx }));
-    });
-    return points ?? [];
-  }
-
-  const points = await cached(`hist:${symbol}:${days}`, 120_000, async () => {
-    const range = days <= 5 ? "5d" : days <= 30 ? "1mo" : days <= 90 ? "3mo" : "1y";
-    const raw = await fetchYahooChart(symbol, range);
-    if (!raw) return [];
-    const isKrw = symbol.endsWith(".KS") || symbol.endsWith(".KQ");
-    return raw.points.map(p => ({ t: p.t, close: isKrw ? p.close : p.close * fx }));
+  const candles = await cached(`candles:${assetType}:${symbol}:${interval}`, CANDLE_CACHE_TTL_MS, async () => {
+    const raw = await fetchYahooCandlesRaw(yahooSymbol, cfg.yahooInterval, cfg.range);
+    if (!raw.length) return [];
+    const isKrw = assetType === "kr_stock";
+    const scale = isKrw ? 1 : fx;
+    const converted = raw.map(c => ({ t: c.t, o: c.o * scale, h: c.h * scale, l: c.l * scale, c: c.c * scale }));
+    return cfg.aggregate > 1 ? aggregateCandles(converted, cfg.aggregate) : converted;
   });
-  return points ?? [];
+  return candles ?? [];
 }

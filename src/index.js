@@ -124,11 +124,11 @@ async function handleApi(request, env, url, pathname) {
     return json({ items });
   }
 
-  if ((m = pathname.match(/^\/api\/history\/([^/]+)\/(.+)$/)) && method === "GET") {
+  if ((m = pathname.match(/^\/api\/candles\/([^/]+)\/(.+)$/)) && method === "GET") {
     const [, assetType, symbol] = m;
-    const days = parseInt(url.searchParams.get("days") || "30", 10);
-    const points = await marketData.getHistory(decodeURIComponent(symbol), assetType, days);
-    return json({ points });
+    const interval = url.searchParams.get("interval") || "5m";
+    const candles = await marketData.getCandles(decodeURIComponent(symbol), assetType, interval);
+    return json({ candles });
   }
 
   if (pathname === "/api/leaderboard" && method === "GET") {

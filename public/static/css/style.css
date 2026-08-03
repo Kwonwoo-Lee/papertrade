@@ -137,10 +137,11 @@ th:first-child, td:first-child { text-align: left; }
 .detail-trade-col { flex: 1; min-width: 260px; max-width: 340px; }
 .trade-panel { margin-bottom: 0; }
 
-.chart-range { display: flex; gap: 6px; margin-bottom: 10px; }
+.chart-range { display: flex; gap: 6px; margin-bottom: 10px; overflow-x: auto; }
 .range-btn {
   background: var(--page); border: 1px solid var(--border); color: var(--ink-2);
   border-radius: 999px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit;
+  white-space: nowrap; flex-shrink: 0;
 }
 .range-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .chart-wrap { margin-bottom: 18px; }
@@ -148,8 +149,9 @@ th:first-child, td:first-child { text-align: left; }
 .chart-wrap-lg .spark-svg { height: 260px; }
 .chart-empty { text-align: center; font-size: 12px; padding: 34px 0; margin: 0; }
 .chart-wrap-lg .chart-empty { padding: 110px 0; }
-.spark-line.good { stroke: var(--good); } .spark-line.bad { stroke: var(--bad); }
-.spark-area.good { fill: var(--good); } .spark-area.bad { fill: var(--bad); }
+.candle-wick { stroke-width: 1; }
+.candle-wick.up { stroke: var(--good); } .candle-wick.down { stroke: var(--bad); }
+.candle-body.up { fill: var(--good); } .candle-body.down { fill: var(--bad); }
 
 @media (max-width: 700px) {
   .detail-layout { flex-direction: column; }
