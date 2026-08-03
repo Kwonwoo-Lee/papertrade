@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>모의투자 - 국내주식·미국주식·코인</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- 로그인/회원가입 화면 -->
+<div class="auth-wrap" id="authScreen">
+  <div class="auth-card">
+    <div class="brand" style="margin-bottom:20px;">📈 모의투자</div>
+    <div class="tabs">
+      <button class="tab active" id="loginTabBtn" data-mode="login">로그인</button>
+      <button class="tab" id="signupTabBtn" data-mode="signup">회원가입</button>
+    </div>
+    <div class="modal-field" style="margin-top:18px;">
+      <label for="authUsername">아이디</label>
+      <input type="text" id="authUsername" placeholder="영문/숫자 3~20자" autocomplete="username">
+    </div>
+    <div class="modal-field">
+      <label for="authPassword">비밀번호</label>
+      <input type="password" id="authPassword" placeholder="6자 이상" autocomplete="current-password">
+    </div>
+    <button class="btn-primary" id="authSubmitBtn">로그인</button>
+    <p class="modal-error" id="authError"></p>
+  </div>
+</div>
+
+<!-- 메인 앱 -->
+<div id="appScreen" style="display:none;">
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brand">📈 모의투자</div>
+    <div class="topbar-right">
+      <span class="muted" id="whoami"></span>
+      <button class="btn-ghost" id="resetBtn">계좌 초기화</button>
+      <button class="btn-ghost" id="logoutBtn">로그아웃</button>
+    </div>
+  </div>
+  <div class="wrap">
+    <nav class="tabs main-tabs" id="mainNav">
+      <button class="tab active" data-view="account">내 계좌</button>
+      <button class="tab" data-view="ranking">🏆 랭킹</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div id="accountView">
+    <section class="hero-card">
+      <div class="hero-left">
+        <div class="hero-label">총 평가자산</div>
+        <div class="hero-value" id="totalValue">-</div>
+        <div class="hero-change" id="totalChange">-</div>
+      </div>
+      <div class="hero-right">
+        <div class="stat">
+          <div class="stat-label">보유 현금</div>
+          <div class="stat-value" id="cashValue">-</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">투자 원금</div>
+          <div class="stat-value" id="initialValue">-</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>내 보유 종목</h2>
+      <div id="holdingsList" class="holdings-list">
+        <p class="muted">불러오는 중...</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>둘러보기</h2>
+      <div class="tabs" id="discoverTabs">
+        <button class="tab active" data-type="kr_stock">🇰🇷 국내주식</button>
+        <button class="tab" data-type="us_stock">🇺🇸 미국주식</button>
+        <button class="tab" data-type="crypto">🪙 코인</button>
+      </div>
+      <div class="search-row">
+        <input type="text" id="searchInput" placeholder="종목명 또는 티커 검색 (예: 삼성전자, AAPL, bitcoin)">
+      </div>
+      <div id="discoverGrid" class="discover-grid">
+        <p class="muted">불러오는 중...</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>거래 내역</h2>
+      <div class="scroll">
+        <table id="txTable"><tbody><tr><td class="muted">불러오는 중...</td></tr></tbody></table>
+      </div>
+    </section>
+  </div>
+
+  <div id="rankingView" style="display:none;">
+    <section class="panel">
+      <h2>🏆 수익률 랭킹</h2>
+      <p class="muted" style="margin-top:-10px;">모든 참가자가 1천만원으로 시작합니다. 수익률(%) 기준 순위입니다.</p>
+      <div class="scroll">
+        <table id="rankTable"><tbody><tr><td class="muted">불러오는 중...</td></tr></tbody></table>
+      </div>
+    </section>
+  </div>
+
+</main>
+</div>
+
+<!-- 거래 모달 -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-symbol" id="modalName">-</div>
+        <div class="modal-price" id="modalPrice">-</div>
+      </div>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+
+    <div class="side-toggle">
+      <button class="side-btn buy active" data-side="buy">매수</button>
+      <button class="side-btn sell" data-side="sell">매도</button>
+    </div>
+
+    <div class="modal-field">
+      <label for="qtyInput">수량</label>
+      <input type="number" id="qtyInput" min="0" step="any" value="1">
+    </div>
+    <div class="modal-field" id="ownedRow" style="display:none">
+      <span class="muted">보유 수량</span>
+      <span id="ownedQty">0</span>
+    </div>
+    <div class="modal-total-row">
+      <span>예상 금액</span>
+      <span id="estTotal">-</span>
+    </div>
+
+    <button class="btn-primary" id="submitTradeBtn">주문 실행</button>
+    <p class="modal-error" id="modalError"></p>
+  </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
