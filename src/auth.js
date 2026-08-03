@@ -8,7 +8,7 @@
 
 const SESSION_TTL_DAYS = 30;
 const USERNAME_RE = /^[a-zA-Z0-9_-]{3,20}$/;
-const PBKDF2_ITERATIONS = 200_000;
+const PBKDF2_ITERATIONS = 100_000; // Workers 프로덕션 런타임의 PBKDF2 반복 횟수 상한
 
 export class AuthError extends Error {}
 
