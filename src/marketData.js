@@ -3,17 +3,16 @@
  * ====================================================================
  * Cloudflare Workers는 Python(yfinance)을 못 돌리므로, yfinance가 내부적으로
  * 호출하는 것과 같은 Yahoo Finance 원시 차트 API를 fetch로 직접 호출합니다.
- * 실시간 현재가는 Python 버전과 동일하게 CoinGecko 공개 API를 씁니다.
- * 분봉 캔들차트는 CoinGecko 무료 API가 분 단위 캔들을 제공하지 않아서,
- * 코인도 Yahoo Finance의 -USD 티커(예: BTC-USD)를 통해 조회합니다.
- * 전부 KRW로 환산해서 반환합니다. 모듈 스코프의 간단한 TTL 캐시로
- * 같은 워커 인스턴스 안에서 반복 조회를 줄입니다(정확한 분산 캐시는
+ * 코인도 CoinGecko/바이낸스 대신 Yahoo Finance의 -USD 티커(예: BTC-USD)로
+ * 통일해서 조회합니다 - CoinGecko는 무료 API 요청 제한(429)이 잦고, 바이낸스는
+ * Cloudflare Workers의 데이터센터 IP를 아예 차단(403)해서 이 환경에서는 둘 다
+ * 신뢰할 수 없었습니다. 전부 KRW로 환산해서 반환합니다. 모듈 스코프의 간단한
+ * TTL 캐시로 같은 워커 인스턴스 안에서 반복 조회를 줄입니다(정확한 분산 캐시는
  * 아니지만, Python 버전의 in-memory 캐시와 동일한 수준의 최적화입니다).
  */
 import { yahooTickerFor } from "./symbols.js";
 
 const CACHE_TTL_MS = 15_000;
-const CRYPTO_CACHE_TTL_MS = 30_000; // CoinGecko 무료 API는 요청 제한이 더 엄격함
 const CANDLE_CACHE_TTL_MS = 20_000;
 const cache = new Map(); // key -> { at, value }
 
@@ -101,47 +100,27 @@ async function stockQuote(ticker) {
   });
 }
 
-// CoinGecko 무료 API는 당일 고가/저가/거래량/52주 범위를 안정적으로 안 줘서,
-// 코인도 야후의 -USD 티커에서 이 통계만 보조로 가져옵니다 (실시간가/등락률은 계속 CoinGecko 사용).
-async function cryptoDayStats(coinId) {
-  return cached(`daystats:crypto:${coinId}`, CACHE_TTL_MS, async () => {
-    const raw = await fetchYahooChart(yahooTickerFor(coinId, "crypto"), "5d");
-    if (!raw) return null;
-    return {
-      dayHigh: raw.dayHigh, dayLow: raw.dayLow, volume: raw.volume,
-      prevClose: raw.prevClose, week52High: raw.week52High, week52Low: raw.week52Low,
-    };
-  });
-}
-
-async function cryptoQuote(coinId) {
-  return cached(`quote:crypto:${coinId}`, CRYPTO_CACHE_TTL_MS, async () => {
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(coinId)}&vs_currencies=usd&include_24hr_change=true`;
-    const res = await fetch(url, { headers: BROWSER_HEADERS });
-    if (!res.ok) throw new Error(`CoinGecko ${res.status} for ${coinId}`);
-    const data = await res.json();
-    const entry = data[coinId];
-    if (!entry) return null;
-    return {
-      priceNative: entry.usd,
-      currency: "USD",
-      changePct: Math.round((entry.usd_24h_change ?? 0) * 100) / 100,
-    };
-  });
-}
-
 function toKrw(nativeValue, scale) {
   return nativeValue == null ? null : Math.round(nativeValue * scale * 100) / 100;
 }
 
+/**
+ * 여러 종목의 시세를 한 번에 조회합니다.
+ * entries: [{ symbol, assetType }]
+ */
+export async function getQuotesBulk(entries) {
+  return Promise.all(entries.map(e => getQuote(e.symbol, e.assetType)));
+}
+
 /** assetType: 'kr_stock' | 'us_stock' | 'crypto'. 반환 price는 항상 KRW로 환산됩니다. */
 export async function getQuote(symbol, assetType) {
-  const raw = assetType === "crypto" ? await cryptoQuote(symbol) : await stockQuote(symbol);
+  const ticker = assetType === "crypto" ? yahooTickerFor(symbol, "crypto") : symbol;
+  const raw = await stockQuote(ticker);
   if (!raw) return null;
   const fx = await getUsdKrwRate();
   const scale = raw.currency === "USD" ? fx : 1;
   const priceKrw = raw.priceNative * scale;
-  const stats = assetType === "crypto" ? await cryptoDayStats(symbol) : raw;
+  const stats = raw;
   // 기존 파이썬 API와 동일한 snake_case 키로 반환 - 프론트엔드(app.js)를 그대로 재사용하기 위함
   return {
     symbol,

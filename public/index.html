@@ -19,17 +19,18 @@
 <!-- 로그인/회원가입 화면 -->
 <div class="auth-wrap" id="authScreen">
   <div class="auth-card">
-    <div class="brand" style="margin-bottom:20px;">📈 모의투자</div>
+    <button type="button" class="auth-lang-toggle" id="authLangToggle">English</button>
+    <div class="brand" style="margin-bottom:20px;" id="authBrand">📈 모의투자</div>
     <div class="tabs">
       <button class="tab active" id="loginTabBtn" data-mode="login">로그인</button>
       <button class="tab" id="signupTabBtn" data-mode="signup">회원가입</button>
     </div>
     <div class="modal-field" style="margin-top:18px;">
-      <label for="authUsername">아이디</label>
+      <label for="authUsername" id="authUsernameLabel">아이디</label>
       <input type="text" id="authUsername" placeholder="영문/숫자 3~20자" autocomplete="username">
     </div>
     <div class="modal-field">
-      <label for="authPassword">비밀번호</label>
+      <label for="authPassword" id="authPasswordLabel">비밀번호</label>
       <input type="password" id="authPassword" placeholder="6자 이상" autocomplete="current-password">
     </div>
     <button class="btn-primary" id="authSubmitBtn">로그인</button>

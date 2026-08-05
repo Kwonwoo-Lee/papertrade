@@ -32,6 +32,14 @@ function isHttps(request) {
   return new URL(request.url).protocol === "https:";
 }
 
+async function parseJsonBody(request) {
+  try {
+    return await request.json();
+  } catch {
+    throw { status: 400, message: "요청 형식이 올바르지 않습니다. 다시 시도해주세요." };
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -70,7 +78,7 @@ async function handleApi(request, env, url, pathname) {
 
   // ---------------- 인증 ----------------
   if (pathname === "/api/auth/signup" && method === "POST") {
-    const { username, password } = await request.json();
+    const { username, password } = await parseJsonBody(request);
     const { userId, token } = await auth.signup(env.DB, username, password);
     await portfolio.ensureAccount(env.DB, userId);
     return json({ id: userId, username: username.trim() }, 200, {
@@ -79,7 +87,7 @@ async function handleApi(request, env, url, pathname) {
   }
 
   if (pathname === "/api/auth/login" && method === "POST") {
-    const { username, password } = await request.json();
+    const { username, password } = await parseJsonBody(request);
     const { userId, token } = await auth.login(env.DB, username, password);
     await portfolio.ensureAccount(env.DB, userId);
     return json({ id: userId, username: username.trim() }, 200, {
@@ -125,7 +133,7 @@ async function handleApi(request, env, url, pathname) {
   if (pathname === "/api/quotes" && method === "GET") {
     const assetType = url.searchParams.get("asset_type") || "";
     const catalog = symbolsMod.catalogFor(assetType);
-    const quotes = await Promise.all(catalog.map(e => marketData.getQuote(e.symbol, assetType)));
+    const quotes = await marketData.getQuotesBulk(catalog.map(e => ({ symbol: e.symbol, assetType })));
     const items = [];
     catalog.forEach((entry, i) => {
       if (quotes[i]) { quotes[i].name = entry.name; items.push(quotes[i]); }
@@ -157,13 +165,13 @@ async function handleApi(request, env, url, pathname) {
 
   if (pathname === "/api/trade/buy" && method === "POST") {
     const user = await requireUser(request, env);
-    const { symbol, asset_type, quantity } = await request.json();
+    const { symbol, asset_type, quantity } = await parseJsonBody(request);
     return json(await portfolio.buy(env.DB, user.id, symbol, asset_type, quantity));
   }
 
   if (pathname === "/api/trade/sell" && method === "POST") {
     const user = await requireUser(request, env);
-    const { symbol, asset_type, quantity } = await request.json();
+    const { symbol, asset_type, quantity } = await parseJsonBody(request);
     return json(await portfolio.sell(env.DB, user.id, symbol, asset_type, quantity));
   }
 
@@ -180,7 +188,7 @@ async function handleApi(request, env, url, pathname) {
 
   if (pathname === "/api/orders/limit" && method === "POST") {
     const user = await requireUser(request, env);
-    const { symbol, asset_type, side, quantity, limit_price_krw } = await request.json();
+    const { symbol, asset_type, side, quantity, limit_price_krw } = await parseJsonBody(request);
     return json(await portfolio.createLimitOrder(env.DB, user.id, symbol, asset_type, side, quantity, limit_price_krw));
   }
 

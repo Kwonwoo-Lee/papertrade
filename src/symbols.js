@@ -35,7 +35,7 @@ export const US_STOCKS = [
   { symbol: "SPY", name: "SPDR S&P 500 ETF" },
 ];
 
-// yahoo: 분봉 캔들차트 조회용 야후 파이낸스 티커 (CoinGecko는 분 단위 캔들을 제공하지 않음)
+// yahoo: 실시간가/등락률/당일통계/분봉 캔들차트 조회용 야후 파이낸스 티커
 export const CRYPTO = [
   { symbol: "bitcoin", name: "Bitcoin (BTC)", yahoo: "BTC-USD" },
   { symbol: "ethereum", name: "Ethereum (ETH)", yahoo: "ETH-USD" },

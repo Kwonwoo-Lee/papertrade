@@ -34,6 +34,62 @@ function fmtVolume(v, assetType) {
     : Math.round(v).toLocaleString() + "주";
 }
 
+/* ---------------- 인증 화면 다국어(ko/en) ---------------- */
+
+const AUTH_TEXT = {
+  ko: {
+    brand: "📈 모의투자", toggleLabel: "English",
+    login: "로그인", signup: "회원가입",
+    usernameLabel: "아이디", usernamePlaceholder: "영문/숫자 3~20자",
+    passwordLabel: "비밀번호", passwordPlaceholder: "6자 이상",
+    fillBoth: "아이디와 비밀번호를 입력해주세요.",
+  },
+  en: {
+    brand: "📈 Paper Trading", toggleLabel: "한국어",
+    login: "Login", signup: "Sign Up",
+    usernameLabel: "Username", usernamePlaceholder: "3-20 letters, numbers, _, -",
+    passwordLabel: "Password", passwordPlaceholder: "6+ characters",
+    fillBoth: "Please enter a username and password.",
+  },
+};
+
+// 서버는 항상 한국어 오류 메시지를 반환하므로, 영어 모드에서는 알려진 문구를 매핑해서 보여줍니다.
+const AUTH_ERROR_EN = {
+  "아이디는 영문/숫자/_/- 조합 3~20자여야 합니다.": "Username must be 3-20 characters (letters, numbers, _, -).",
+  "비밀번호는 6자 이상이어야 합니다.": "Password must be at least 6 characters.",
+  "이미 사용 중인 아이디입니다.": "This username is already taken.",
+  "아이디 또는 비밀번호가 올바르지 않습니다.": "Incorrect username or password.",
+  "요청 형식이 올바르지 않습니다. 다시 시도해주세요.": "Invalid request format. Please try again.",
+  "서버 오류가 발생했습니다.": "A server error occurred. Please try again.",
+};
+
+let authLang = localStorage.getItem("authLang") || (navigator.language?.startsWith("ko") ? "ko" : "en");
+
+function translateAuthError(message) {
+  if (authLang !== "en") return message;
+  return AUTH_ERROR_EN[message] || message;
+}
+
+function applyAuthLang() {
+  const t = AUTH_TEXT[authLang];
+  document.documentElement.lang = authLang;
+  $("authLangToggle").textContent = t.toggleLabel;
+  $("authBrand").textContent = t.brand;
+  $("loginTabBtn").textContent = t.login;
+  $("signupTabBtn").textContent = t.signup;
+  $("authUsernameLabel").textContent = t.usernameLabel;
+  $("authUsername").placeholder = t.usernamePlaceholder;
+  $("authPasswordLabel").textContent = t.passwordLabel;
+  $("authPassword").placeholder = t.passwordPlaceholder;
+  $("authSubmitBtn").textContent = authMode === "login" ? t.login : t.signup;
+}
+
+function toggleAuthLang() {
+  authLang = authLang === "ko" ? "en" : "ko";
+  localStorage.setItem("authLang", authLang);
+  applyAuthLang();
+}
+
 /* ---------------- 인증 ---------------- */
 
 async function checkAuth() {
@@ -62,7 +118,7 @@ function setAuthMode(mode) {
   authMode = mode;
   $("loginTabBtn").classList.toggle("active", mode === "login");
   $("signupTabBtn").classList.toggle("active", mode === "signup");
-  $("authSubmitBtn").textContent = mode === "login" ? "로그인" : "회원가입";
+  $("authSubmitBtn").textContent = mode === "login" ? AUTH_TEXT[authLang].login : AUTH_TEXT[authLang].signup;
   $("authError").textContent = "";
 }
 
@@ -71,7 +127,7 @@ async function submitAuth() {
   const password = $("authPassword").value;
   const errEl = $("authError");
   errEl.textContent = "";
-  if (!username || !password) { errEl.textContent = "아이디와 비밀번호를 입력해주세요."; return; }
+  if (!username || !password) { errEl.textContent = AUTH_TEXT[authLang].fillBoth; return; }
 
   const btn = $("authSubmitBtn");
   btn.disabled = true;
@@ -85,7 +141,7 @@ async function submitAuth() {
     $("authPassword").value = "";
     showApp();
   } catch (e) {
-    errEl.textContent = e.message;
+    errEl.textContent = translateAuthError(e.message);
   } finally {
     btn.disabled = false;
   }
@@ -544,6 +600,8 @@ function switchMainView(view) {
 }
 
 function init() {
+  applyAuthLang();
+  $("authLangToggle").addEventListener("click", toggleAuthLang);
   $("loginTabBtn").addEventListener("click", () => setAuthMode("login"));
   $("signupTabBtn").addEventListener("click", () => setAuthMode("signup"));
   $("authSubmitBtn").addEventListener("click", submitAuth);
